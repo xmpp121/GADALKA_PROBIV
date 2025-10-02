@@ -27,7 +27,9 @@ jobs:
             ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
 
             cd ${{ secrets.SERVER_PATH }}
-            git pull --rebase
+            git fetch origin
+            git reset --hard origin/main
+
 
             # Обновим зависимости (если менялись)
             if [ -f requirements.txt ]; then
