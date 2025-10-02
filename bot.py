@@ -1,7 +1,7 @@
 # trigger deploy
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
+from html import escape as h
 import os
 import re
 import json
@@ -86,12 +86,15 @@ def call_breachka(single_query: str, need_country: bool) -> dict:
 
 # ---------- Форматирование ответа ----------
 def fmt(resp: dict) -> str:
+    """Форматирует ответ Breachka в аккуратный HTML c экранированием."""
+    def lkeys(d: dict) -> dict:
+        return {(k.lower() if isinstance(k, str) else k): v for k, v in d.items()}
+
     parts = []
 
-    # Отметим невалидные запросы
     bad = resp.get("NotValidRequests") or resp.get("notValidRequests") or []
     if bad:
-        parts.append("❗ Запросы не прошли валидацию:\n" + "\n".join(f"- {b}" for b in bad))
+        parts.append("<b>❗ Запросы не прошли валидацию:</b>\n" + "\n".join(f"• {h(str(b))}" for b in bad))
 
     outer = resp.get("Responses") or resp.get("responses") or []
     if not outer:
@@ -101,73 +104,78 @@ def fmt(resp: dict) -> str:
     for block in outer:
         b = lkeys(block)
         q = b.get("query") or b.get("Query") or ""
-        parts.append(f"🔎 *Запрос:* `{q}`")
+        parts.append(f"🔎 <b>Запрос:</b> <code>{h(str(q))}</code>")
 
         inner = b.get("responses", [])
         if not inner:
             parts.append("— Нет ответов.")
+            parts.append("— — —")
             continue
 
-        # агрегируем все внутренние записи
+        # Соберём все поля из всех элементов
+        from collections import defaultdict
         agg = defaultdict(list)
-        sources_acc = []
+        sources = []
 
         for one in inner:
             o = lkeys(one)
             for k, v in o.items():
                 if k == "sources" and isinstance(v, list):
-                    sources_acc.extend(v)
+                    sources.extend(v)
                 elif isinstance(v, list):
                     for val in v:
-                        if val is None or val == "":
-                            continue
-                        if val not in agg[k]:
+                        if val and val not in agg[k]:
                             agg[k].append(val)
 
-        def add(name: str, key: str, limit: int = 12):
+        def add_block(title: str, key: str, limit: int = 12):
             vals = agg.get(key, [])
-            if vals:
-                shown = vals[:limit]
-                more = len(vals) - len(shown)
-                s = "; ".join(map(str, shown)) + (f" (и ещё {more})" if more > 0 else "")
-                parts.append(f"*{name}:* {s}")
+            if not vals:
+                return
+            shown = vals[:limit]
+            more = len(vals) - len(shown)
+            lines = "\n".join(f"• {h(str(x))}" for x in shown)
+            tail = f"\n…и ещё {more}" if more > 0 else ""
+            parts.append(f"<b>{title}</b>\n{lines}{tail}")
 
-        # поля
-        add("Телефоны", "phone")
-        add("Оператор/Регион", "opsos")
-        add("ФИО", "fio")
-        add("Имена/Псевдонимы", "names")
-        add("Дата рождения", "born")
-        add("Адреса", "address")
-        add("Транспорт", "transport")
-        add("Email", "email")
-        add("Пароли", "password")
-        add("URL/Профили", "url")
-        add("Юзернеймы", "username")
-        add("ICQ", "icq")
-        add("Skype", "skype")
-        add("Telegram", "telegram")
-        add("Работа", "work")
-        add("Адреса работы", "workaddress")  # у некоторых ответов camelCase
-        add("Паспорта", "passport")
-        add("ИНН", "inn")
-        add("СНИЛС", "snils")
-        add("Долги", "debts")
-        add("Родственники", "relatives")
+        # Основные секции
+        add_block("Телефоны", "phone")
+        add_block("Оператор/Регион", "opsos")
+        add_block("ФИО", "fio")
+        add_block("Имена/Псевдонимы", "names")
+        add_block("Дата рождения", "born")
+        add_block("Адреса", "address")
+        add_block("Транспорт", "transport")
+        add_block("Email", "email")
+        add_block("Пароли", "password")
+        add_block("URL/Профили", "url")
+        add_block("Юзернеймы", "username")
+        add_block("ICQ", "icq")
+        add_block("Skype", "skype")
+        add_block("Telegram", "telegram")
+        add_block("Работа", "work")
+        add_block("Адреса работы", "workaddress")  # camelCase приводим к lower
+        add_block("Паспорта", "passport")
+        add_block("ИНН", "inn")
+        add_block("СНИЛС", "snils")
+        add_block("Долги", "debts")
+        add_block("Родственники", "relatives")
 
-        # источники
-        if sources_acc:
-            labels = []
-            for s in sources_acc:
+        # Источники
+        if sources:
+            uniq = []
+            for s in sources:
                 s = lkeys(s)
                 label = s.get("name") or s.get("url") or "Источник"
-                if label not in labels:
-                    labels.append(label)
-            parts.append(f"*Источники:* {', '.join(labels[:8])}" + ("…" if len(labels) > 8 else ""))
+                if label not in uniq:
+                    uniq.append(label)
+            show = uniq[:10]
+            more = len(uniq) - len(show)
+            parts.append("<b>Источники</b>\n" + "\n".join(f"• {h(x)}" for x in show) + (f"\n…и ещё {more}" if more > 0 else ""))
 
         parts.append("— — —")
 
     return "\n".join(parts)
+
 
 # ---------- Telegram ----------
 def main_kb() -> InlineKeyboardMarkup:
@@ -251,7 +259,8 @@ async def text_recv(update: Update, context: ContextTypes.DEFAULT_TYPE):
         code = getattr(e.response, "status_code", "")
         await update.message.reply_text(f"HTTP ошибка: {code}", reply_markup=again_kb())
     except Exception as e:
-        await update.message.reply_text(f"Ошибка: {e}", reply_markup=again_kb())
+        await update.message.reply_text(out, parse_mode="HTML", reply_markup=again_kb())
+
 
     return ConversationHandler.END
 
