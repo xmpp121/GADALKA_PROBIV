@@ -1,0 +1,39 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'bot.py'
+      - 'requirements.txt'
+      - '.github/workflows/deploy.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            mkdir -p ~/.ssh
+            ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+            cd ${{ secrets.SERVER_PATH }}
+            git pull --rebase
+
+            # Обновим зависимости (если менялись)
+            if [ -f requirements.txt ]; then
+              /opt/gadalka-bot/venv/bin/pip install --upgrade -r requirements.txt
+            fi
+
+            # Перезапуск сервиса
+            systemctl restart gadalka-bot.service
+            systemctl is-active gadalka-bot.service
