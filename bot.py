@@ -17,10 +17,14 @@ if not BREACHKA_API_KEY or not TELEGRAM_TOKEN:
     raise RuntimeError("Set BREACHKA_API_KEY and TELEGRAM_TOKEN env vars")
 
 # ---------------- API ----------------
-def call_breachka(single_query: str, find_type="Summary", country="RU"):
+def call_breachka(single_query: str, find_type="Detail", country="RU"):
     url = "https://www.breachka.com/api/v1/find/mass"
     headers = {"X-Api-Key": BREACHKA_API_KEY, "Content-Type": "application/json"}
-    payload = {"requests": [single_query], "findType": find_type, "countryType": country}
+    payload = {
+        "Requests": [single_query],   # с заглавной буквы
+        "FindType": find_type,        # Detail = подробный ответ
+        "CountryType": country
+    }
     r = requests.post(url, headers=headers, json=payload, timeout=30)
     r.raise_for_status()
     return r.json()
@@ -86,7 +90,8 @@ async def choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q.data == "fio":
         context.user_data["type"] = "fio"
         await q.edit_message_text(
-            "✍ Введите ФИО и дату рождения (например: `Иванов Петр Петрович 06.04.1994`) или ФИО + год (например: `Иванов Петр Петрович 1994`).",
+            "✍ Введите ФИО и дату рождения (например: `Иванов Петр Петрович 06.04.1994`) "
+            "или ФИО + год (например: `Иванов Петр Петрович 1994`).",
             parse_mode="Markdown"
         )
     elif q.data == "phone":
